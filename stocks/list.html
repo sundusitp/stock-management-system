@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>รายการสินค้า</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      background: #f0f2f5;
+    }
+
+    h2 {
+      color: #333;
+      text-align: center;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+
+    .controls input,
+    .controls select {
+      padding: 8px 10px;
+      margin: 5px 0;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+      font-size: 14px;
+    }
+
+    a.add-link {
+      text-decoration: none;
+      display: flex;
+      justify-content: center;
+      margin-bottom: 10px;
+    }
+
+    a.add-link button {
+      background: #17a2b8;
+      color: white;
+      padding: 10px 15px;
+      border-radius: 6px;
+      transition: 0.3s;
+    }
+
+    a.add-link button:hover {
+      background: #138496;
+    }
+
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      background: #fff;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    th,
+    td {
+      border: 1px solid #ddd;
+      padding: 10px;
+      text-align: center;
+    }
+
+    th {
+      background: #007BFF;
+      color: white;
+      cursor: pointer;
+    }
+
+    tr:hover {
+      background-color: #f1f1f1;
+    }
+
+    button {
+      padding: 5px 10px;
+      margin: 2px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    button.edit {
+      background: #28a745;
+      color: white;
+    }
+
+    button.delete {
+      background: #dc3545;
+      color: white;
+    }
+
+    button.save {
+      background: #ffc107;
+      color: white;
+    }
+
+    input.edit-input {
+      width: 80px;
+    }
+
+    @media (max-width: 600px) {
+      table,
+      thead,
+      tbody,
+      th,
+      td,
+      tr {
+        display: block;
+      }
+
+      tr {
+        margin-bottom: 15px;
+        border-bottom: 2px solid #ddd;
+      }
+
+      th {
+        display: none;
+      }
+
+      td {
+        text-align: right;
+        padding-left: 50%;
+        position: relative;
+      }
+
+      td::before {
+        content: attr(data-label);
+        position: absolute;
+        left: 10px;
+        width: 45%;
+        text-align: left;
+        font-weight: bold;
+      }
+
+      input.edit-input {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <button id="logoutBtn" style="position:absolute; top:20px; right:20px; background-color: #dc3545; color: white;">Logout</button>
+
+  <h2>รายการสินค้า</h2>
+
+  <div class="controls">
+    <input type="text" id="searchInput" placeholder="ค้นหาชื่อสินค้า...">
+    <input type="number" id="minStock" placeholder="สต็อกขั้นต่ำ">
+    <input type="number" id="maxStock" placeholder="สต็อกสูงสุด">
+    <input type="number" id="minPrice" placeholder="ราคาต่ำสุด">
+    <input type="number" id="maxPrice" placeholder="ราคาสูงสุด">
+  </div>
+
+  <a href="add.html" class="add-link">
+    <button>➕ เพิ่มสินค้าใหม่</button>
+  </a>
+
+  <table>
+    <thead>
+      <tr>
+        <th data-key="name">ชื่อสินค้า ▲▼</th>
+        <th data-key="stock">สต็อก ▲▼</th>
+        <th data-key="price">ราคา ▲▼</th>
+        <th>จัดการ</th>
+      </tr>
+    </thead>
+    <tbody id="productList"></tbody>
+  </table>
+
+  <script type="module">
+    import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
+    import { db } from "./firebase.js";
+    import { collection, getDocs, deleteDoc, doc, updateDoc } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
+
+    const auth = getAuth();
+    const list = document.getElementById("productList");
+    const searchInput = document.getElementById("searchInput");
+    const minStock = document.getElementById("minStock");
+    const maxStock = document.getElementById("maxStock");
+    const minPrice = document.getElementById("minPrice");
+    const maxPrice = document.getElementById("maxPrice");
+    const logoutBtn = document.getElementById("logoutBtn");
+
+    let allProducts = [];
+    let sortKey = null;
+    let sortDir = 1; // 1=asc, -1=desc
+
+    onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        alert("กรุณา login ก่อนใช้งาน!");
+        window.location.href = "login.html";
+      }
+    });
+
+    async function loadProducts() {
+      const querySnapshot = await getDocs(collection(db, "products"));
+      allProducts = querySnapshot.docs.map(docItem => ({ id: docItem.id, ...docItem.data() }));
+      renderProducts();
+    }
+
+    function renderProducts() {
+      let filtered = allProducts;
+
+      const searchText = searchInput.value.trim().toLowerCase();
+      if (searchText) filtered = filtered.filter(p => p.name.toLowerCase().includes(searchText));
+
+      const minS = parseInt(minStock.value);
+      const maxS = parseInt(maxStock.value);
+      const minP = parseFloat(minPrice.value);
+      const maxP = parseFloat(maxPrice.value);
+
+      filtered = filtered.filter(p =>
+        (isNaN(minS) || p.stock >= minS) &&
+        (isNaN(maxS) || p.stock <= maxS) &&
+        (isNaN(minP) || p.price >= minP) &&
+        (isNaN(maxP) || p.price <= maxP)
+      );
+
+      if (sortKey) {
+        filtered.sort((a, b) => (a[sortKey] > b[sortKey] ? 1 : -1) * sortDir);
+      }
+
+      list.innerHTML = "";
+      filtered.forEach(data => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td data-label="ชื่อสินค้า"><span class="name">${data.name}</span></td>
+          <td data-label="สต็อก"><span class="stock">${data.stock}</span></td>
+          <td data-label="ราคา"><span class="price">${data.price}</span></td>
+          <td data-label="จัดการ">
+            <button class="edit">✏️</button>
+            <button class="delete">🗑️</button>
+          </td>
+        `;
+
+        const editBtn = tr.querySelector(".edit");
+        const deleteBtn = tr.querySelector(".delete");
+
+        editBtn.addEventListener("click", () => {
+          const nameSpan = tr.querySelector(".name");
+          const stockSpan = tr.querySelector(".stock");
+          const priceSpan = tr.querySelector(".price");
+
+          nameSpan.innerHTML = `<input type="text" class="edit-input" value="${data.name}">`;
+          stockSpan.innerHTML = `<input type="number" class="edit-input" value="${data.stock}">`;
+          priceSpan.innerHTML = `<input type="number" class="edit-input" value="${data.price}">`;
+
+          editBtn.textContent = "💾";
+          editBtn.classList.remove("edit");
+          editBtn.classList.add("save");
+
+          const newEditBtn = editBtn.cloneNode(true);
+          editBtn.parentNode.replaceChild(newEditBtn, editBtn);
+
+          newEditBtn.addEventListener("click", async () => {
+            const newName = nameSpan.querySelector("input").value;
+            const newStock = parseInt(stockSpan.querySelector("input").value);
+            const newPrice = parseFloat(priceSpan.querySelector("input").value);
+
+            if (!newName || isNaN(newStock) || isNaN(newPrice)) {
+              alert("กรอกข้อมูลให้ครบและถูกต้อง");
+              return;
+            }
+
+            await updateDoc(doc(db, "products", data.id), { name: newName, stock: newStock, price: newPrice });
+            loadProducts();
+          });
+        });
+
+        deleteBtn.addEventListener("click", async () => {
+          if (confirm(`คุณแน่ใจจะลบสินค้า "${data.name}"?`)) {
+            await deleteDoc(doc(db, "products", data.id));
+            loadProducts();
+          }
+        });
+
+        list.appendChild(tr);
+      });
+    }
+
+    // Search & Filter realtime
+    [searchInput, minStock, maxStock, minPrice, maxPrice].forEach(el => el.addEventListener("input", renderProducts));
+
+    // Sort
+    document.querySelectorAll("th[data-key]").forEach(th => {
+      th.addEventListener("click", () => {
+        const key = th.dataset.key;
+        if (sortKey === key) sortDir *= -1;
+        else {
+          sortKey = key;
+          sortDir = 1;
+        }
+        renderProducts();
+      });
+    });
+
+    // Logout
+    logoutBtn.addEventListener("click", async () => {
+      await signOut(auth);
+      window.location.href = "login.html";
+    });
+
+    loadProducts();
+  </script>
+
+</body>
+</html>
